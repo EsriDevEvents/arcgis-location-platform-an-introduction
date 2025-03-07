@@ -10,3 +10,5 @@ This demo app uses [ArcGIS Location Platform](https://location.arcgis.com) and [
 * Show/hide traffic layer from the Living Atlas of the World.
 * Show elevation at point
 * Use the Places service to query for near by places of specific categories.
+
+![Demo app screenshot](./alp-intro-demo.png)
