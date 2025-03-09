@@ -14,7 +14,7 @@ const elevationURL = "https://elevation-api.arcgis.com/arcgis/rest/services/elev
 const elevationMeasure = "meanSeaLevel";
 const customBasemapItemId = "545aec7d28a34e08a0579a648199921b";
 const touristFeatureServiceURL = "https://services6.arcgis.com/ruf7rSM6pRXYMxKO/arcgis/rest/services/Palm_Springs_Tourist_Locations/FeatureServer";
-const radiusBase = 500;
+const placeQueryRadius = 500;
 
 require([
     "esri/config",
@@ -215,7 +215,7 @@ require([
 
         // show summary
         let summary = document.createElement("p");
-        summary.innerText = 
+        summary.innerText =
           "Distance: " + routeResult.totalLength.toFixed(2) +
           " miles; drive time: " + routeResult.totalDriveTime.toFixed(2) + " minutes";
         directions.appendChild(summary);
@@ -353,13 +353,13 @@ require([
       "content": "<b>Type:</b> {Category}<br><b>Address:</b> {Address}<br><b>Website:</b> <a href=\"{URL}\">{URL}</a><br><b>Hours:</b> {hours}<br><b>Rating:</b> {rating}<p>{description}</p>"
     }
 
-    const placesLayer = new FeatureLayer({
+    const placesFeatureLayer = new FeatureLayer({
       url: touristFeatureServiceURL,
       outFields: ["*"],
       popupTemplate: popupPlaces,
       renderer: placesRenderer
     });
-    map.add(placesLayer);
+    map.add(placesFeatureLayer);
   }
 
   /**
@@ -394,15 +394,15 @@ require([
           actionBar: false,
         },
       };
-  
+
       const title = `Relative to ${
         elevationMeasure === "meanSeaLevel"
           ? "mean sea level"
           : "ground level"
       }`;
       const content = `Elevation: ${z} m<br>Latitude: ${y.toFixed(5)}<br>Longitude: ${x.toFixed(5)}`;
-  
-      addGraphic("origin", mapPoint) 
+
+      addGraphic("origin", mapPoint)
       mapView.openPopup({
         location: [longitude, latitude],
         content: content,
@@ -473,13 +473,13 @@ require([
         return category.categoryId == categoryId
       }
     ).fullLabel;
-    return categoryNames[categoryNames.length - 1];  
+    return categoryNames[categoryNames.length - 1];
   }
 
   /**
    * Return the place type given its category name.
-   * @param {string} name 
-   * @returns 
+   * @param {string} name
+   * @returns
    */
   function getPlaceTypeByName(categoryName) {
     return placesCategoriesToShow.find(placeType => placeType.name === categoryName)
@@ -578,7 +578,7 @@ require([
   }
 
   /**
-   * remove any prior results/details from prior place search.
+   * Remove any prior results/details from a prior place search.
    */
   function clearPlaces() {
     placesLayer.removeAll();
@@ -600,7 +600,7 @@ require([
     }
     const placesQueryParameters = new PlacesQueryParameters({
       categoryIds: placeCategory.categoryIds,
-      radius: radiusBase,
+      radius: placeQueryRadius,
       point: searchPoint,
       icon: "png"
     });
@@ -639,6 +639,12 @@ require([
     placesLayer.graphics.add(placeGraphic);
   }
 
+  /**
+   * Monitor the mouse movement over the map view so we can determine
+   * when a place graphic is rolled-over and then show the attributes
+   * about that place.
+   * @param {Event} pointerEvent Event attributes.
+   */
   async function pointerMoveEventHandler(pointerEvent) {
     const response = await view.hitTest(pointerEvent, {include: placesLayer});
     if (response.results.length > 0) {
@@ -652,7 +658,9 @@ require([
     } else {
       // no results, clear any previous place detail
       lastPlaceId = null;
-      view.ui.empty("top-right");
+      if ( ! routingActive) {
+        view.ui.empty("top-right");
+      }
     }
   }
 
@@ -699,6 +707,9 @@ require([
     })
   }
 
+  /**
+   * Wire up the UI elements to event handlers.
+   */
   function setEventHandlers() {
     let element = document.getElementById("basemap-select");
     if (element) {
