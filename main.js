@@ -7,7 +7,6 @@
  * show elevation at point
  * Places layer
  */
-
 require([
     "esri/config",
     "esri/Basemap",
@@ -285,7 +284,8 @@ require([
   }
 
   /**
-   * ---------------------------- Feature Service -----------------------------------------
+   * ----------------------- Data Hosting, Feature Service -----------------------------------------
+   * Reference: https://developers.arcgis.com/documentation/portal-and-data-services/data-services/how-to-work-with-data-services/
    */
   const touristFeatureServiceURL = "https://services6.arcgis.com/ruf7rSM6pRXYMxKO/arcgis/rest/services/Palm_Springs_Tourist_Locations/FeatureServer";
 
@@ -372,6 +372,7 @@ require([
 
   /**
    * ---------------------------- Elevation -----------------------------------------
+   * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/elevation/how-to-build-an-app-to-find-elevation/
    */
   const elevationURL = "https://elevation-api.arcgis.com/arcgis/rest/services/elevation-service/v1/elevation/at-point";
   const elevationMeasure = "meanSeaLevel";
@@ -436,6 +437,7 @@ require([
 
   /**
    * ---------------------------- Places -----------------------------------------
+   * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/place-finding/how-to-build-a-places-app/
    */
   const placesCategoriesURL = "https://places-api.arcgis.com/arcgis/rest/services/places-service/v1/categories";
   const placeQueryRadius = 500;
@@ -457,46 +459,6 @@ require([
         showPlacesCategories(view);
       })
     });
-  }
-
-  /**
-   * Return the URL to the icon for the place category id. Requires the place
-   * categories have been previously loaded.
-   */
-  function getCategoryIconURL(categoryId) {
-    if ( ! placesCategoriesList) {
-      return "https://static.arcgis.com/icons/places/Default_Arts_and_Entertainment_15.svg";
-    }
-    return placesCategoriesList.find(
-      function(category) {
-        return category.categoryId == categoryId;
-      }
-    ).icon.url;
-  }
-
-  /**
-   * Return the name of a category id such that is can be localized from
-   * the server response.
-   */
-  function getCategoryNameLocalized(categoryId) {
-    if ( ! placesCategoriesList) {
-      return "unknown";
-    }
-    const categoryNames = placesCategoriesList.find(
-      function(category) {
-        return category.categoryId == categoryId
-      }
-    ).fullLabel;
-    return categoryNames[categoryNames.length - 1];
-  }
-
-  /**
-   * Return the place type given its category name.
-   * @param {string} name
-   * @returns
-   */
-  function getPlaceTypeByName(categoryName) {
-    return placesCategoriesToShow.find(placeType => placeType.name === categoryName)
   }
 
   /**
@@ -604,13 +566,6 @@ require([
   }
 
   /**
-   * Remove any prior results/details from a prior place search.
-   */
-  function clearPlaces() {
-    placesLayer.removeAll();
-  }
-
-  /**
    * Get places of the selected category near the point.
    */
   async function getPlacesNearby(placeCategory, mapPoint) {
@@ -640,6 +595,53 @@ require([
       }
       processingPlaceSearch = false;
     });
+  }
+
+  /**
+   * Return the URL to the icon for the place category id. Requires the place
+   * categories have been previously loaded.
+   */
+  function getCategoryIconURL(categoryId) {
+    if ( ! placesCategoriesList) {
+      return "https://static.arcgis.com/icons/places/Default_Arts_and_Entertainment_15.svg";
+    }
+    return placesCategoriesList.find(
+      function(category) {
+        return category.categoryId == categoryId;
+      }
+    ).icon.url;
+  }
+
+  /**
+   * Return the name of a category id such that is can be localized from
+   * the server response.
+   */
+  function getCategoryNameLocalized(categoryId) {
+    if ( ! placesCategoriesList) {
+      return "unknown";
+    }
+    const categoryNames = placesCategoriesList.find(
+      function(category) {
+        return category.categoryId == categoryId
+      }
+    ).fullLabel;
+    return categoryNames[categoryNames.length - 1];
+  }
+
+  /**
+   * Return the place type given its category name.
+   * @param {string} name
+   * @returns
+   */
+  function getPlaceTypeByName(categoryName) {
+    return placesCategoriesToShow.find(placeType => placeType.name === categoryName)
+  }
+
+  /**
+   * Remove any prior results/details from a prior place search.
+   */
+  function clearPlaces() {
+    placesLayer.removeAll();
   }
 
   /**
