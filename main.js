@@ -7,14 +7,6 @@
  * show elevation at point
  * Places layer
  */
-const routeUrl = "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World";
-const placesCategoriesURL = "https://places-api.arcgis.com/arcgis/rest/services/places-service/v1/categories";
-const trafficLayerURL = "https://traffic.arcgis.com/arcgis/rest/services/World/Traffic/MapServer";
-const elevationURL = "https://elevation-api.arcgis.com/arcgis/rest/services/elevation-service/v1/elevation/at-point";
-const elevationMeasure = "meanSeaLevel";
-const customBasemapItemId = "545aec7d28a34e08a0579a648199921b";
-const touristFeatureServiceURL = "https://services6.arcgis.com/ruf7rSM6pRXYMxKO/arcgis/rest/services/Palm_Springs_Tourist_Locations/FeatureServer";
-const placeQueryRadius = 500;
 
 require([
     "esri/config",
@@ -65,8 +57,13 @@ require([
       zoom: 11
   });
 
-  getPlacesCategoriesList(languageCode);
-  showTouristAttractions(map);
+  view.when(function() {
+    getPlacesCategoriesList(languageCode);
+    showTouristAttractions(map);
+  })
+  .catch(function(err) {
+    console.error("MapView cannot be loaded: ", err);
+  });
 
   view.on("click", function(event) {
     const mapPoint = event.mapPoint;
@@ -100,7 +97,10 @@ require([
 
   /**
    * ---------------------------- Basemap -----------------------------------------
+   * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/mapping/how-to-build-a-mapping-app/
    */
+  const customBasemapItemId = "545aec7d28a34e08a0579a648199921b";
+
   /**
    * Listen for a change event on the basemap picker UI.
    * @param {Event} event Event attributes.
@@ -173,7 +173,11 @@ require([
 
   /**
    * ---------------------------- Routing -----------------------------------------
+   * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/routing-and-directions/how-to-build-a-routing-app/
    */
+  const routeUrl = "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World";
+  const trafficLayerURL = "https://traffic.arcgis.com/arcgis/rest/services/World/Traffic/MapServer";
+  
   /**
    * Solve the route between the origin and destination points.
    */
@@ -229,7 +233,7 @@ require([
   }
 
   /**
-   * Traffic layer uses Map image tile layer, requires valid authentication.
+   * Traffic layer from Living Atlas uses map image tile layer, requires valid authentication.
    * @param {Map} map Map object to add traffic layer to.
    */
   function showTraffic(map) {
@@ -281,6 +285,8 @@ require([
   /**
    * ---------------------------- Feature Service -----------------------------------------
    */
+  const touristFeatureServiceURL = "https://services6.arcgis.com/ruf7rSM6pRXYMxKO/arcgis/rest/services/Palm_Springs_Tourist_Locations/FeatureServer";
+
   /**
    * Create a feature layer from our curated places data, add the unique value symbol
    * renderer with places icons, and add to the map.
@@ -365,6 +371,9 @@ require([
   /**
    * ---------------------------- Elevation -----------------------------------------
    */
+  const elevationURL = "https://elevation-api.arcgis.com/arcgis/rest/services/elevation-service/v1/elevation/at-point";
+  const elevationMeasure = "meanSeaLevel";
+
   /**
    * Query elevation data for the given point and then render the UI
    * popup element to display the data.
@@ -426,6 +435,9 @@ require([
   /**
    * ---------------------------- Places -----------------------------------------
    */
+  const placesCategoriesURL = "https://places-api.arcgis.com/arcgis/rest/services/places-service/v1/categories";
+  const placeQueryRadius = 500;
+
   /**
    * Pre-load all place categories in the requested language. Once loaded,
    * update the place category buttons with the new labels.
@@ -501,7 +513,9 @@ require([
         },
         {
           name: "Restaurants",
-          categoryIds: ["4d4b7105d754a06374d81259"],
+          categoryIds: [
+            "4d4b7105d754a06374d81259"
+          ],
           labelCategoryId: "4d4b7105d754a06374d81259",
           isButton: true,
           isSelected: true,
@@ -526,14 +540,24 @@ require([
         },
         {
           name: "Grocery",
-          categoryIds: ["4bf58dd8d48988d118951735", "52f2ab2ebcbc57f1066b8b45", "50aa9e744b90af0d42d5de0e", "52f2ab2ebcbc57f1066b8b2c", "5f2c41945b4c177b9a6dc7d6", "63be6904847c3692a84b9bf0"],
+          categoryIds: [
+            "4bf58dd8d48988d118951735",
+            "52f2ab2ebcbc57f1066b8b45",
+            "50aa9e744b90af0d42d5de0e",
+            "52f2ab2ebcbc57f1066b8b2c",
+            "5f2c41945b4c177b9a6dc7d6",
+            "63be6904847c3692a84b9bf0"
+          ],
           labelCategoryId: "4bf58dd8d48988d118951735",
           isButton: true,
           icon: "https://static.arcgis.com/icons/places/Grocery_Store_15.svg",
         },
         {
           name: "Coffee",
-          categoryIds: ["4bf58dd8d48988d1e0931735", "5e18993feee47d000759b256"],
+          categoryIds: [
+            "4bf58dd8d48988d1e0931735",
+            "5e18993feee47d000759b256"
+          ],
           labelCategoryId: "4bf58dd8d48988d1e0931735",
           isButton: true,
           icon: "https://static.arcgis.com/icons/places/Coffee_or_Tea_15.svg",
