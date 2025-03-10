@@ -31,6 +31,7 @@ require([
 ], function(esriConfig, Basemap, Map, MapView, BasemapStyle, Graphic, route, RouteParameters, FeatureSet, FeatureLayer, MapImageLayer, VectorTileLayer, esriRequest, places, FetchPlaceParameters, PlacesQueryParameters, Point, Graphic, GraphicsLayer) {
   setEventHandlers();
   let languageCode = "en";
+  let worldView = "unitedStatesOfAmerica";
   let localizeCategories = true;
   let routingActive = false;
   let showElevation = false;
@@ -93,6 +94,7 @@ require([
   function updateConfigurationFromURL() {
     const queryParams = new URLSearchParams(location.search.substring(1));
     languageCode = queryParams.get("language") || "en";
+    worldView = queryParams.get("worldview") || "unitedStatesOfAmerica";
   }
 
   /**
@@ -106,8 +108,8 @@ require([
    * @param {Event} event Event attributes.
    */
   function onChangeBasemap(event) {
-    const element = event.target;
-    map.basemap = basemapFromSelection(element.value);
+    const comboBox = event.target;
+    map.basemap = basemapFromSelection(comboBox.value);
   }
 
   /**
@@ -118,16 +120,6 @@ require([
   function basemapFromSelection(basemapId) {
     let basemap;
     switch (basemapId) {
-      case "imagery":
-        basemap = new Basemap({
-          style: new BasemapStyle({
-            id: "arcgis/imagery",
-            places: "attributed",
-            worldview: "unitedStatesOfAmerica",
-            language: languageCode
-          })
-        });
-        break;
       case "custom":
         basemap = new Basemap({
           baseLayers: [
@@ -139,13 +131,23 @@ require([
           ]
         });
         break;
+      case "imagery":
+        basemap = new Basemap({
+          style: new BasemapStyle({
+            id: "arcgis/imagery",
+            places: "attributed",
+            worldview: worldView,
+            language: languageCode
+          })
+        });
+        break;
       case "navigation":
       default:
         basemap = new Basemap({
           style: new BasemapStyle({
             id: "arcgis/navigation",
             places: "attributed",
-            worldview: "unitedStatesOfAmerica",
+            worldview: worldView,
             language: languageCode
           })
         });
