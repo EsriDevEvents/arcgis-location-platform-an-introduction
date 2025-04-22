@@ -1,0 +1,38 @@
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Static Map demo app</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <style>
+    html, body, #viewDiv {
+        padding: 2rem;
+        margin: 0;
+        height: 100%;
+        width: 80%;
+    }
+  </style>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.32/esri/themes/light/main.css">
+  </head>
+  <body>
+    <h1>ArcGIS Static Map Service</h1>
+    <p>The ArcGIS Static Maps service enables developers to create and easily embed map images from ArcGIS Basemaps on websites or in applications where interactive maps aren’t the best option. These images can be displayed on web and mobile devices without the aid of a mapping library or API. They look like an embedded map, but do not have interactivity or controls. Static Maps service capabilities are critical as they enable the visualization of location data through a wide variety of use cases and experiences such as ride hailing, delivery receipts, news articles or summaries of activities like a recap of your latest run.</p>
+    <img id="static-map-image" src=""/>
+    <p>See <a href="https://developers.arcgis.com/rest/static-maps/">ArcGIS Developer documentation</a> for more information about how to use the static map service.</p>
+    <script src="./secret.js"></script>
+    <script>
+        const staticMapParameters = {
+            lon: -116.55035,
+            lat: 33.8251852,
+            zoomLevel: 14,
+            markerSymbol: "pin",
+            mapImageFormat: "png",
+            mapImageWidth: 900,
+            mapImageHeight: 500,
+            token: my_secret_api_key
+        };
+        let url = "https://static-maps-api.arcgis.com/arcgis/rest/services/static-maps-service/beta/generate-map/arcgis/navigation/centered-at?" + new URLSearchParams(staticMapParameters).toString();
+        document.getElementById("static-map-image").src = url;
+    </script>
+  </body>
+</html>
