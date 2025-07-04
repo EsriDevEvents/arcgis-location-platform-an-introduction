@@ -44,24 +44,47 @@
     .place-details {
       --calcite-shell-panel-min-width: 280px;
     }
+    #chartDiv {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      z-index: 3;
+      display: none;
+      flex-direction: row;
+      background-color: rgb(221, 237, 237);
+      border: 2px solid rgb(149, 149, 149);
+      border-radius: 0.5rem;
+      opacity: 1;
+      padding: 8px;
+    }
+    .switch-style {
+      margin-top: 10px;
+      padding-left: 8px;
+    }
   </style>
-  <link rel="stylesheet" href="https://js.arcgis.com/4.32/esri/themes/light/main.css">
-  <script type="module" src="https://js.arcgis.com/calcite-components/3.0.3/calcite.esm.js"></script>
-  <script src="https://js.arcgis.com/4.32/"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.33/esri/themes/light/main.css">
+  <script type="module" src="https://js.arcgis.com/calcite-components/3.2.0/calcite.esm.js"></script>
+  <script src="https://js.arcgis.com/4.33/"></script>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> -->
   </head>
   <body>
     <div class="controlPanel">
-      <calcite-label layout="inline" style="margin-top: 10px;">
+      <calcite-label layout="inline" class="switch-style">
         Route
         <calcite-switch id="route-switch" scale="m"></calcite-switch>
       </calcite-label>
-      <calcite-label layout="inline" style="margin-top: 10px;">
-        Elevation
-        <calcite-switch id="elevation-switch" scale="m"></calcite-switch>
-      </calcite-label>
-      <calcite-label layout="inline" style="margin-top: 10px;">
+      <calcite-label layout="inline" class="switch-style">
         Traffic
         <calcite-switch id="traffic-switch" scale="m"></calcite-switch>
+      </calcite-label>
+      <calcite-label layout="inline" class="switch-style">
+        Bike
+        <calcite-switch id="bike-switch" scale="m"></calcite-switch>
+      </calcite-label>
+      <calcite-label layout="inline" class="switch-style">
+        Elevation
+        <calcite-switch id="elevation-switch" scale="m"></calcite-switch>
       </calcite-label>
       <calcite-chip-group
       id="categoryButtons"
@@ -82,7 +105,24 @@
           </calcite-combobox-item>
       </calcite-combobox>
     </div>
-    <div id="viewDiv"></div>
+    <div id="viewDiv">
+      <!-- <arcgis-placement position="top-right" id="chartDiv" class="hidden">
+        <calcite-panel id="statsPanel" heading="Elevation profile" description="Elevation profile for route">
+          <calcite-block expanded label="chart block" id="chart-block">
+            <arcgis-chart id="elevationLines"></arcgis-chart>
+          </calcite-block>
+        </calcite-panel>
+      </arcgis-placement> -->
+    </div>
+    <div id="chartDiv" class="hidden">
+      <calcite-loader
+        id="chartLoader"
+        type="indeterminate"
+        label="Loading elevation profile..."
+        text="Loading elevation profile..."
+      ></calcite-loader>
+      <canvas id="elevationLines"></canvas>
+    </div>
     <script src="./secret.js"></script>
     <script src="./main.js"></script>
   </body>
