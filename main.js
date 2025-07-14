@@ -24,6 +24,8 @@ require([
     "esri/rest/places",
     "esri/rest/support/FetchPlaceParameters",
     "esri/rest/support/PlacesQueryParameters",
+    "esri/widgets/Search",
+    "esri/widgets/Expand",
     "esri/geometry/Point",
     "esri/Graphic",
     "esri/layers/GraphicsLayer",
@@ -31,7 +33,7 @@ require([
     "esri/geometry/projection",
     "esri/geometry/SpatialReference",
     "esri/geometry/support/webMercatorUtils"
-], function(esriConfig, Basemap, Map, MapView, BasemapStyle, Graphic, route, RouteParameters, FeatureSet, FeatureLayer, MapImageLayer, VectorTileLayer, esriRequest, places, FetchPlaceParameters, PlacesQueryParameters, Point, Graphic, GraphicsLayer, geometryEngine, projection, SpatialReference, webMercatorUtils) {
+], function(esriConfig, Basemap, Map, MapView, BasemapStyle, Graphic, route, RouteParameters, FeatureSet, FeatureLayer, MapImageLayer, VectorTileLayer, esriRequest, places, FetchPlaceParameters, PlacesQueryParameters, Search, Expand, Point, Graphic, GraphicsLayer, geometryEngine, projection, SpatialReference, webMercatorUtils) {
   setEventHandlers();
   let languageCode = "en";
   let initialViewPoint = [-117.1620642, 32.7060707]; // San Diego
@@ -40,11 +42,13 @@ require([
   let routingActive = false;
   let showElevation = false;
   let elevationMarkerLayer = null;
+  let basemapPlacesLayer = null;
   let placesCategoriesList = null;
   let placesCategoriesToShow = null;
   let activePlaceCategory = "Restaurants";
   let processingPlaceSearch = false;
   let lastPlaceId = null;
+  let lastPlaceHitTime = 0;
   let chartWidget = null;
   let priorElevationMarker = null;
   const elevationMarkerSymbol = {
@@ -61,6 +65,8 @@ require([
   showElevationChart(false);
   updateConfigurationFromURL();
   esriConfig.apiKey = my_secret_api_key;
+
+  // Use graphics layer to render places found with query
   const placesLayer = new GraphicsLayer({
     id: "placesLayer"
   });
@@ -76,36 +82,31 @@ require([
       zoom: 11
   });
 
+  // Add Search widget with autosuggest
+  view.ui.add(
+    new Expand({
+      view: view,
+      content: new Search({
+        view: view
+      }),
+      expanded: false,
+      mode: "floating",
+    }),
+    "top-left"
+  );
+
   view.when(function() {
+    basemapPlacesLayer = map.allLayers.getItemAt(0);
     getPlacesCategoriesList(languageCode);
     showTouristAttractions(map);
-    elevationMarkerLayer = new GraphicsLayer({ id: "marker-layer" })
-    view.map.add(elevationMarkerLayer)
+    elevationMarkerLayer = new GraphicsLayer({ id: "marker-layer" });
+    view.map.add(elevationMarkerLayer);
   })
   .catch(function(err) {
     console.error("MapView cannot be loaded: ", err);
   });
 
-  view.on("click", function(event) {
-    const mapPoint = event.mapPoint;
-    if (routingActive) {
-      if (view.graphics.length === 0) {
-        addGraphic("origin", mapPoint);
-      } else if (view.graphics.length === 1) {
-        addGraphic("destination", mapPoint);
-        getRoute();
-      } else {
-        view.graphics.removeAll();
-        addGraphic("origin", mapPoint);
-      }
-    } else if (showElevation) {
-      view.graphics.removeAll();
-      getElevationDataAtPoint(view, mapPoint);
-    } else {
-      getPlacesNearby(activePlaceCategory, mapPoint);
-    }
-  });
-
+  view.on("click", viewClickEventHandler);
   view.on("pointer-move", pointerMoveEventHandler);
 
   /**
@@ -129,7 +130,13 @@ require([
    */
   function onChangeBasemap(event) {
     const comboBox = event.target;
-    map.basemap = basemapFromSelection(comboBox.value);
+    const basemapId = comboBox.value;
+    map.basemap = basemapFromSelection(basemapId);
+
+    map.allLayers.forEach(function(layer) {
+      console.log(layer.title, layer.type, layer.id);
+    });
+
   }
 
   /**
@@ -196,6 +203,7 @@ require([
   /**
    * ---------------------------- Routing -----------------------------------------
    * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/routing-and-directions/how-to-build-a-routing-app/
+   * Traffic layer from Living Atlas https://livingatlas.arcgis.com/en/browse/?q=traffic#d=2&q=traffic
    */
   const routeUrl = "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World";
   const trafficLayerURL = "https://traffic.arcgis.com/arcgis/rest/services/World/Traffic/MapServer";
@@ -508,7 +516,7 @@ require([
     }
     showElevationChart(true);
     showChartLoader(true);
-    const densifiedGeometry = await densifyGeometry(geometry);
+    const densifiedGeometry = await densifyGeometry(geometry, 500);
     const wgs84Geometry = await projectGeometry(densifiedGeometry);
     const coordinatesArrays = await getCoordinatesArrays(wgs84Geometry);
 
@@ -522,7 +530,7 @@ require([
       Promise.all(meanSeaLevelRequests),
     ]);
 
-    let [meanSeaLevelData, totalDistance] = processPoints(
+    let [meanSeaLevelData, totalDistance] = processElevationPoints(
       meanSeaLevelResults,
       coordinatesArrays
     );
@@ -620,13 +628,11 @@ require([
 
   function handleChartHover (event, elements, chart) {
     if (elements.length === 0) {
-      clearElevationMarker(); // Remove marker when hover is released
+      clearElevationMarker();
       return;
     }
-
     const datasetIndex = elements[0].datasetIndex;
     const index = elements[0].index;
-    // const polylineIndex = chart.data.datasets[datasetIndex].data[index].polylineIndex;
     const { x, y } = chart.data.datasets[datasetIndex].data[index];
     showElevationMarker(x, y);
   }
@@ -650,6 +656,39 @@ require([
     });
     elevationMarkerLayer.add(elevationMarker);
     priorElevationMarker = elevationMarker;
+  }
+
+  function processElevationPoints(
+    meanSeaLevelResults,
+    coordinatesArrays
+  ) {
+    let meanSeaLevelData = []
+    let totalDistance = 0
+
+    for (let i = 0; i < meanSeaLevelResults.length; i++) {
+      const meanSeaLevelPoints = meanSeaLevelResults[i]
+      const coordinatesBatch = coordinatesArrays[i]
+
+      meanSeaLevelPoints.forEach((point, index) => {
+        if (index > 0) {
+          const distance = calculateDistanceHaversine(
+            meanSeaLevelPoints[index - 1],
+            point,
+            "meters"
+          )
+          totalDistance += distance
+
+          meanSeaLevelData.push({
+            sea: point.z,
+            distance: totalDistance / 1000.0,
+            polylineIndex: index,
+            x: coordinatesBatch[index][0],
+            y: coordinatesBatch[index][1],
+          });
+        }
+      });
+    }
+    return [meanSeaLevelData, totalDistance]
   }
 
   /**
@@ -885,32 +924,102 @@ require([
   }
 
   /**
+   * Deterine what to do when the user clicks on the map, as depending on
+   * what switches are active different things can happen:
+   * - query for a place
+   * - query elevation
+   * - start or complete a route
+   * @param {Event} clickEvent Click event details
+   */
+  function viewClickEventHandler(clickEvent) {
+    const mapPoint = clickEvent.mapPoint;
+    if (routingActive) {
+      if (view.graphics.length === 0) {
+        addGraphic("origin", mapPoint);
+      } else if (view.graphics.length === 1) {
+        addGraphic("destination", mapPoint);
+        getRoute();
+      } else {
+        view.graphics.removeAll();
+        addGraphic("origin", mapPoint);
+      }
+    } else if (showElevation) {
+      view.graphics.removeAll();
+      getElevationDataAtPoint(view, mapPoint);
+    } else {
+      getPlacesNearby(activePlaceCategory, mapPoint);
+    }
+  }
+
+  /**
    * Monitor the mouse movement over the map view so we can determine
    * when a place graphic is rolled-over and then show the attributes
    * about that place.
    * @param {Event} pointerEvent Event attributes.
    */
   async function pointerMoveEventHandler(pointerEvent) {
-    const response = await view.hitTest(pointerEvent, {include: placesLayer});
-    if (response.results.length > 0) {
-      // hit something on the places layer, show the details
-      const graphic = response.results[0].graphic;
-      const placeAttributes = graphic.attributes;
-      if (lastPlaceId != placeAttributes.placeId) {
-        lastPlaceId = placeAttributes.placeId;
-        getPlaceDetails(placeAttributes);
+    const timeNow = Date.now();
+    if (timeNow - lastPlaceHitTime > 300) {
+      lastPlaceHitTime = timeNow;
+      let includeLayers = [placesLayer];
+      if (basemapPlacesLayer) {
+        includeLayers.push(basemapPlacesLayer);
       }
-    } else {
-      // no results, clear any previous place detail
-      lastPlaceId = null;
-      if ( ! routingActive) {
-        view.ui.empty("top-right");
+      const hitResponse = await view.hitTest(pointerEvent, {include: includeLayers});
+      if (hitResponse.results.length > 0) {
+        const graphic = hitResponse.results[0].graphic;
+        if (graphic) {
+          const layerId = hitResponse.results[0].layer.id;
+          if (layerId == "placesLayer") {
+            // hit something on the curated places layer, show the place details
+            const placeAttributes = graphic.attributes;
+            if (lastPlaceId != placeAttributes.placeId) {
+              lastPlaceId = placeAttributes.placeId;
+              getPlaceDetails(placeAttributes);
+            }
+          } else {
+            // hit something on the basemap places layer, show the place details
+            const hitPlace = await Promise.all(
+              hitResponse.results
+              .filter(function(feature) {
+                if (feature.graphic.attributes["esri_place_id"]) {
+                  return feature.graphic;
+                }
+              })
+              .map(async function(feature) {
+                if (feature) {
+                  // transform the raw place data into something we can use
+                  feature.graphic.attributes = {
+                    placeId: feature.graphic.attributes["esri_place_id"],
+                    name: feature.graphic.attributes["_name"],
+                    category: feature.graphic.attributes["category_labels"]
+                      .split(">")
+                      .at(-1)
+                      .trim(),
+                  }
+                  return feature.graphic
+                }
+              })
+            );
+            if (hitPlace.length > 0) {
+              lastPlaceId = hitPlace[0].attributes.placeId;
+              getPlaceDetails(hitPlace[0].attributes);
+            }
+          }
+        }
+      } else {
+        // no results, clear any previous place detail
+        lastPlaceId = null;
+        if ( ! routingActive) {
+          view.ui.empty("top-right");
+        }
       }
     }
   }
 
   /**
-   * Get details about a place given its place ID returned from a place query.
+   * Get details about a place given its place ID returned from a place query, and
+   * then display the place details in a UI panel.
    * @param {Place} placeAttributes Place attributes returned from a place query.
    */
   function getPlaceDetails(placeAttributes) {
@@ -952,114 +1061,6 @@ require([
     })
   }
 
-
-      async function densifyGeometry(geometry) {
-        const projectedGeometry = await projection.project(
-          geometry,
-          SpatialReference.WebMercator
-        );
-        const interval = 500;
-        const densified = geometryEngine.densify(
-          projectedGeometry,
-          interval,
-          "meters"
-        );
-        return densified;
-      }
-
-      async function generalizeGeometry(geometry) {
-        const projectedGeometry = await projection.project(
-          geometry,
-          SpatialReference.WebMercator
-        );
-        const maxDeviation = 50;
-        const generalized = geometryEngine.generalizeGeometry(
-          projectedGeometry,
-          maxDeviation
-        );
-        return generalized;
-      }
-
-      function processPoints(
-        meanSeaLevelResults,
-        coordinatesArrays
-      ) {
-        let meanSeaLevelData = []
-        let totalDistance = 0
-
-        for (let i = 0; i < meanSeaLevelResults.length; i++) {
-          const meanSeaLevelPoints = meanSeaLevelResults[i]
-          const coordinatesBatch = coordinatesArrays[i]
-
-          meanSeaLevelPoints.forEach((point, index) => {
-            if (index > 0) {
-              const distance = calculateDistanceHaversine(
-                meanSeaLevelPoints[index - 1],
-                point,
-                "meters"
-              )
-              totalDistance += distance
-
-              meanSeaLevelData.push({
-                sea: point.z,
-                distance: totalDistance / 1000.0,
-                polylineIndex: index,
-                x: coordinatesBatch[index][0],
-                y: coordinatesBatch[index][1],
-              });
-            }
-          });
-        }
-        return [meanSeaLevelData, totalDistance]
-      }
-
-      function calculateDistanceHaversine(point1, point2) {
-        const R = 6371e3 // Earth's radius in meters
-        const lat1Radians = point1.y * (Math.PI / 180)
-        const lat2Radians = point2.y * (Math.PI / 180)
-        const deltaLatRadians = (point2.y - point1.y) * (Math.PI / 180)
-        const deltaLonRadians = (point2.x - point1.x) * (Math.PI / 180)
-
-        const a =
-          Math.sin(deltaLatRadians / 2) * Math.sin(deltaLatRadians / 2) +
-          Math.cos(lat1Radians) *
-            Math.cos(lat2Radians) *
-            Math.sin(deltaLonRadians / 2) *
-            Math.sin(deltaLonRadians / 2)
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-
-        return R * c
-      }
-
-      async function projectGeometry(geometry) {
-        const projected = await projection.project(
-          geometry,
-          SpatialReference.WGS84
-        )
-        return projected
-      }
-
-  async function getCoordinatesArrays(polyline) {
-    const polylineJson = polyline.toJSON();
-    const geometryPath = polylineJson.paths[0];
-
-    let coordinatesArrays = [];
-    let geographicPoints = [];
-    geometryPath.forEach(function(coordinates) {
-      if (geographicPoints.length < 100) {
-        geographicPoints.push([coordinates[0], coordinates[1]])
-      } else {
-        coordinatesArrays.push(geographicPoints)
-        geographicPoints = [[coordinates[0], coordinates[1]]]
-      }
-    });
-    if (geographicPoints.length > 0) {
-      coordinatesArrays.push(geographicPoints);
-    }
-    return coordinatesArrays;
-  }
-
-
   /**
    * ---------------------------- Helpers -----------------------------------------
    * Supporting functions and UI helpers.
@@ -1089,5 +1090,65 @@ require([
     if (element) {
       element.addEventListener("calciteSwitchChange", onChangeElevation);
     }
+  }
+
+  async function densifyGeometry(geometry, interval) {
+    const projectedGeometry = await projection.project(
+      geometry,
+      SpatialReference.WebMercator
+    );
+    interval ||= 500;
+    const densified = geometryEngine.densify(
+      projectedGeometry,
+      interval,
+      "meters"
+    );
+    return densified;
+  }
+
+  function calculateDistanceHaversine(point1, point2) {
+    const R = 6371e3 // Earth's radius in meters
+    const lat1Radians = point1.y * (Math.PI / 180)
+    const lat2Radians = point2.y * (Math.PI / 180)
+    const deltaLatRadians = (point2.y - point1.y) * (Math.PI / 180)
+    const deltaLonRadians = (point2.x - point1.x) * (Math.PI / 180)
+
+    const a =
+      Math.sin(deltaLatRadians / 2) * Math.sin(deltaLatRadians / 2) +
+      Math.cos(lat1Radians) *
+        Math.cos(lat2Radians) *
+        Math.sin(deltaLonRadians / 2) *
+        Math.sin(deltaLonRadians / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+    return R * c
+  }
+
+  async function projectGeometry(geometry) {
+    const projected = await projection.project(
+      geometry,
+      SpatialReference.WGS84
+    )
+    return projected
+  }
+
+  async function getCoordinatesArrays(polyline) {
+    const polylineJson = polyline.toJSON();
+    const geometryPath = polylineJson.paths[0];
+
+    let coordinatesArrays = [];
+    let geographicPoints = [];
+    geometryPath.forEach(function(coordinates) {
+      if (geographicPoints.length < 100) {
+        geographicPoints.push([coordinates[0], coordinates[1]])
+      } else {
+        coordinatesArrays.push(geographicPoints)
+        geographicPoints = [[coordinates[0], coordinates[1]]]
+      }
+    });
+    if (geographicPoints.length > 0) {
+      coordinatesArrays.push(geographicPoints);
+    }
+    return coordinatesArrays;
   }
 });

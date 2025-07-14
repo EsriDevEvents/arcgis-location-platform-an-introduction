@@ -1,0 +1,603 @@
+<!--
+
+To run this demo, you need to replace 'YOUR_ACCESS_TOKEN' with an access token from ArcGIS that has the correct privileges.
+
+To get started, sign up for a free ArcGIS Location Platform account or a free trial of ArcGIS Online and create developer credentials.
+
+https://developers.arcgis.com/documentation/security-and-authentication/get-started/
+
+-->
+
+<html lang="en"><head><script type="module" src="https://js.arcgis.com/calcite-components/2.13.2/calcite.esm.js"></script>
+  <link rel="stylesheet" type="text/css" href="https://js.arcgis.com/calcite-components/2.13.2/calcite.css">
+  <script type="module" src="https://js.arcgis.com/calcite-components/3.2.0/calcite.esm.js"></script>
+  <script src="./secret.js"></script>
+  <link rel="stylesheet" type="text/css" href="https://js.arcgis.com/calcite-components/3.2.0/calcite.css">
+  <link rel="stylesheet" href="https://js.arcgis.com/4.33/esri/themes/light/main.css">
+  <script src="https://js.arcgis.com/4.33"></script>
+  <style>
+    html,
+    body {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+    }
+
+    #viewContainer {
+      width: 100%;
+      height: 100%;
+    }
+
+    #panelDetails {
+      margin: 15px;
+      height: calc(100% - 100px);
+      display: none;
+      width: 30%;
+      z-index: 0;
+    }
+
+    .content {
+      display: flex;
+      flex-direction: column;
+      font-size: small;
+    }
+
+    .row>label {
+      font-weight: bold;
+    }
+
+    .esri-popup {
+      z-index: 999;
+    }
+
+    .esri-popup .esri-popup__main-container {
+      width: 200px;
+      font-size: smaller;
+    }
+
+    .esri-features__container:not(:empty) {
+      padding: 6px 8px;
+    }
+  </style>
+
+  <script type="module">
+    const [Map, MapView, VectorTileLayer, esriConfig, Basemap, BasemapStyle, promiseUtils, places, FetchPlaceParameters, PlacesQueryParameters, Expand, CIMSymbol, Graphic, EsriPoint] = await $arcgis.import(["@arcgis/core/Map.js",
+      "@arcgis/core/views/MapView.js",
+      "@arcgis/core/layers/VectorTileLayer.js",
+      "@arcgis/core/config.js",
+      "@arcgis/core/Basemap.js",
+      "@arcgis/core/support/BasemapStyle.js",
+      "@arcgis/core/core/promiseUtils.js",
+      "@arcgis/core/rest/places.js",
+      "@arcgis/core/rest/support/FetchPlaceParameters.js",
+      "@arcgis/core/rest/support/PlacesQueryParameters.js",
+      "@arcgis/core/widgets/Expand.js",
+      "@arcgis/core/symbols/CIMSymbol.js",
+      "@arcgis/core/Graphic.js",
+      "@arcgis/core/geometry/Point.js"]);
+
+    // keep track of app state
+    let currentPID = null
+    let currentMarker = null
+
+    // API key scoped to places service
+    const apiKey = my_secret_api_key;
+
+    // Let the jsapi know we have an apikey
+    esriConfig.apiKey = apiKey
+
+    // Create a basemap with a basemap style.
+    const basemap = new Basemap({
+      style: new BasemapStyle({
+        id: "arcgis/navigation",
+        places: "attributed", // returns the place's esri_place_id, category name(s), and category(s) IDs
+      }),
+    })
+
+    // Create a marker symbol for our graphic
+    const markerSymbol = new CIMSymbol({
+      data: {
+        type: "CIMSymbolReference",
+        symbol: {
+          type: "CIMPointSymbol",
+          symbolLayers: [
+            {
+              type: "CIMVectorMarker",
+              enable: true,
+              anchorPoint: {
+                x: 0,
+                y: 0,
+              },
+              anchorPointUnits: "Relative",
+              dominantSizeAxis3D: "Y",
+              size: 8,
+              billboardMode3D: "FaceNearPlane",
+              frame: {
+                xmin: 0,
+                ymin: 0,
+                xmax: 17,
+                ymax: 17,
+              },
+              markerGraphics: [
+                {
+                  type: "CIMMarkerGraphic",
+                  geometry: {
+                    rings: [
+                      [
+                        [8.5, 0],
+                        [7.02, 0.13],
+                        [5.59, 0.51],
+                        [4.25, 1.14],
+                        [3.04, 1.99],
+                        [1.99, 3.04],
+                        [1.14, 4.25],
+                        [0.51, 5.59],
+                        [0.13, 7.02],
+                        [0, 8.5],
+                        [0.13, 9.98],
+                        [0.51, 11.41],
+                        [1.14, 12.75],
+                        [1.99, 13.96],
+                        [3.04, 15.01],
+                        [4.25, 15.86],
+                        [5.59, 16.49],
+                        [7.02, 16.87],
+                        [8.5, 17],
+                        [9.98, 16.87],
+                        [11.41, 16.49],
+                        [12.75, 15.86],
+                        [13.96, 15.01],
+                        [15.01, 13.96],
+                        [15.86, 12.75],
+                        [16.49, 11.41],
+                        [16.87, 9.98],
+                        [17, 8.5],
+                        [16.87, 7.02],
+                        [16.49, 5.59],
+                        [15.86, 4.25],
+                        [15.01, 3.04],
+                        [13.96, 1.99],
+                        [12.75, 1.14],
+                        [11.41, 0.51],
+                        [9.98, 0.13],
+                        [8.5, 0],
+                      ],
+                    ],
+                  },
+                  symbol: {
+                    type: "CIMPolygonSymbol",
+                    symbolLayers: [
+                      {
+                        type: "CIMSolidStroke",
+                        enable: true,
+                        capStyle: "Round",
+                        joinStyle: "Round",
+                        lineStyle3D: "Strip",
+                        miterLimit: 10,
+                        width: 0,
+                        color: [0, 0, 0, 255],
+                      },
+                      {
+                        type: "CIMSolidFill",
+                        enable: true,
+                        color: [255, 255, 255, 255],
+                      },
+                    ],
+                  },
+                },
+              ],
+              scaleSymbolsProportionally: true,
+              respectFrame: true,
+              offsetX: 0,
+              offsetY: 17,
+            },
+            {
+              type: "CIMVectorMarker",
+              enable: true,
+              anchorPoint: {
+                x: 0,
+                y: -0.5,
+              },
+              anchorPointUnits: "Relative",
+              dominantSizeAxis3D: "Y",
+              size: 25,
+              billboardMode3D: "FaceNearPlane",
+              frame: {
+                xmin: 0,
+                ymin: 0,
+                xmax: 21,
+                ymax: 21,
+              },
+              markerGraphics: [
+                {
+                  type: "CIMMarkerGraphic",
+                  geometry: {
+                    rings: [
+                      [
+                        [17.17, 14.33],
+                        [16.97, 12.96],
+                        [16.38, 11.37],
+                        [12.16, 3.98],
+                        [11.2, 1.94],
+                        [10.5, 0],
+                        [9.8, 1.96],
+                        [8.84, 4.02],
+                        [4.61, 11.41],
+                        [4.02, 12.98],
+                        [3.83, 14.33],
+                        [3.96, 15.63],
+                        [4.34, 16.88],
+                        [4.95, 18.03],
+                        [5.78, 19.04],
+                        [6.8, 19.88],
+                        [7.95, 20.49],
+                        [9.2, 20.87],
+                        [10.5, 21],
+                        [11.8, 20.87],
+                        [13.05, 20.5],
+                        [14.2, 19.88],
+                        [15.22, 19.05],
+                        [16.05, 18.03],
+                        [16.66, 16.88],
+                        [17.04, 15.63],
+                        [17.17, 14.33],
+                      ],
+                    ],
+                  },
+                  symbol: {
+                    type: "CIMPolygonSymbol",
+                    symbolLayers: [
+                      {
+                        type: "CIMSolidStroke",
+                        enable: true,
+                        capStyle: "Round",
+                        joinStyle: "Round",
+                        lineStyle3D: "Strip",
+                        miterLimit: 10,
+                        width: 0,
+                        color: [110, 110, 110, 255],
+                      },
+                      {
+                        type: "CIMSolidFill",
+                        enable: true,
+                        color: [0, 0, 0, 255],
+                      },
+                    ],
+                  },
+                },
+              ],
+              scaleSymbolsProportionally: true,
+              respectFrame: true,
+            },
+          ],
+        },
+      },
+    })
+
+    // Create a map using the basemap places style
+    const map = new Map({
+      basemap: basemap,
+    })
+
+
+    // Create the map view
+    const view = new MapView({
+      container: "viewContainer",
+      map: map,
+      center: [-118.49178, 34.01185],
+      zoom: 15,
+      constraints: {
+        minScale: 72223.81928607849,
+      },
+      popup: {
+        alignment: "auto",
+        dockEnabled: false,
+        dockOptions: {
+          buttonEnabled: false,
+        },
+        visibleElements: {
+          closeButton: false,
+          actionBar: false,
+          collapseButton: false,
+          featureNavigation: false,
+          heading: false,
+          spinner: false,
+        },
+      },
+    })
+    view.ui.move(["zoom"], "bottom-right") // move the nav controls
+    view.ui.add(document.getElementById("panelDetails"), "manual") // add details panel
+
+    // Wait for map view to load
+    await view.when()
+
+    // create content for the popup
+    const getPopupContent = (name, category) => {
+      const contentContainer = document.createElement("div")
+      contentContainer.classList.add("content")
+
+      const nameRowContainer = document.createElement("div")
+      nameRowContainer.classList.add("row")
+      contentContainer.appendChild(nameRowContainer)
+
+      const nameLabel = document.createElement("label")
+      nameLabel.innerHTML = "Name: "
+      nameRowContainer.appendChild(nameLabel)
+
+      const nameValue = document.createElement("span")
+      nameValue.innerHTML = name
+      nameRowContainer.appendChild(nameValue)
+
+      const categoryRowContainer = document.createElement("div")
+      categoryRowContainer.classList.add("row")
+      contentContainer.appendChild(categoryRowContainer)
+
+      const categoryLabel = document.createElement("label")
+      categoryLabel.innerHTML = "Category: "
+      categoryRowContainer.appendChild(categoryLabel)
+
+      const categoryValue = document.createElement("span")
+      categoryValue.innerHTML = category
+      categoryRowContainer.appendChild(categoryValue)
+
+      return contentContainer
+    }
+
+    // Get the basemap places layer
+    const bmPlacesLayer = map.allLayers.getItemAt(0)
+
+    // Check if the mouse point is over a place
+    const hitTestMove = promiseUtils.debounce(async evt => {
+      const hits = await view.hitTest(evt, { include: bmPlacesLayer })
+      if (hits.results.length > 0) {
+        const hitPlace = await Promise.all(
+          hits.results
+          .filter(function(feature) {
+            if (feature.graphic.attributes["esri_place_id"]) {
+              return feature.graphic;
+            }
+          })
+          .map(async function(feature) {
+            if (feature) {
+              feature.graphic.attributes = {
+                esri_place_id: feature.graphic.attributes["esri_place_id"],
+                name: feature.graphic.attributes["_name"],
+                category: feature.graphic.attributes["category_labels"]
+                  .split(">")
+                  .at(-1)
+                  .trim(),
+              }
+              return feature.graphic
+            }
+          })
+        );
+
+        if (!hitPlace.length) {
+          return null
+        }
+        return hitPlace
+      } else {
+        return null
+      }
+    })
+
+    // Utility function to set element properties in the placePanel
+    const setElementProperties = (element, value) => {
+      if (value) {
+        element.classList.remove("hide")
+        element.description = value
+      } else {
+        element.classList.add("hide")
+      }
+    }
+
+    // toggle the details panel visibilty
+    const setDetailsPanel = async closed => {
+      const panel = document.getElementById("panelDetails")
+      panel.setAttribute("closed", closed)
+      if (closed) {
+        panel.style.display = "none"
+      } else {
+        panel.style.display = "flex"
+      }
+    }
+
+    // Build the panel data from the detail results
+    const setPlaceDetails = results => {
+      const panel = document.getElementById("panelDetails")
+      const addressElement = document.getElementById("addressLabel")
+      const phoneElement = document.getElementById("phoneLabel")
+      const emailElement = document.getElementById("emailLabel")
+      const websiteElement = document.getElementById("websiteLabel")
+      const facebookElement = document.getElementById("facebookLabel")
+      const twitterElement = document.getElementById("twitterLabel")
+      const instagramElement = document.getElementById("instagramLabel")
+      const categoryElement = document.getElementById("categoryLabel")
+      const idElement = document.getElementById("idLabel")
+
+      panel.setAttribute("heading", results.name)
+      setElementProperties(idElement, results?.placeId)
+      setElementProperties(
+        categoryElement,
+        results?.categories.map(c => c.label).join(", ")
+      )
+      setElementProperties(
+        addressElement,
+        results?.address?.streetAddress
+      )
+      setElementProperties(phoneElement, results?.contactInfo?.telephone)
+      setElementProperties(emailElement, results?.contactInfo?.email)
+      setElementProperties(
+        websiteElement,
+        results?.contactInfo?.website?.split("://")[1].split("/")[0]
+      )
+      setElementProperties(
+        facebookElement,
+        results?.socialMedia?.facebookId
+          ? `www.facebook.com/${results.socialMedia.facebookId}`
+          : null
+      )
+      setElementProperties(
+        twitterElement,
+        results?.socialMedia?.twitter
+          ? `www.twitter.com/${results.socialMedia.twitter}`
+          : null
+      )
+      setElementProperties(
+        instagramElement,
+        results?.socialMedia?.instagram
+          ? `www.instagram.com/${results.socialMedia.instagram}`
+          : null
+      )
+    }
+
+    // Make a request to the places service
+    const getPlaceDetails = async () => {
+      await setDetailsPanel(true)
+
+      if (!currentPID) {
+        panelDidClose()
+        return
+      }
+
+      const placeParams = new FetchPlaceParameters({
+        apiKey,
+        placeId: currentPID,
+        requestedFields: [
+          "name",
+          "location",
+          "socialMedia",
+          "address:streetAddress",
+          "contactInfo:telephone",
+          "contactInfo:website",
+          "contactInfo:email",
+          "categories",
+        ],
+      })
+
+      const featureResults = await places.fetchPlace(placeParams)
+
+
+      await setPlaceDetails(featureResults.placeDetails)
+      await setMarker(featureResults.placeDetails, currentPID)
+      await setDetailsPanel(false)
+
+      if (currentMarker) {
+        view.goTo(currentMarker)
+      }
+    }
+
+    // Drop a marker at the place point
+    const setMarker = (atPoint, pid) => {
+      currentMarker = new Graphic({
+        geometry: {
+          type: "point",
+          x: atPoint.location.x,
+          y: atPoint.location.y,
+          spatialReference: { wkid: 4326 },
+        },
+        symbol: markerSymbol,
+        attributes: { pid: pid },
+      })
+
+      view.graphics.removeAll()
+      view.graphics.add(currentMarker)
+    }
+
+    // handle pointer move, check for places under cursor
+    const viewPointerdidMove = async mvEvt => {
+      const placesHit = await hitTestMove(mvEvt).catch(err => {
+        if (!promiseUtils.isAbortError(err)) {
+          throw err
+        }
+      })
+
+      if (placesHit) {
+        const hitPlaceId = placesHit[0].attributes["esri_place_id"]
+        if (
+          currentMarker &&
+          currentMarker.attributes["pid"] === hitPlaceId
+        ) {
+          return
+        }
+        await view.openPopup({
+          content: getPopupContent(
+            placesHit[0].attributes.name,
+            placesHit[0].attributes.category
+          ),
+          location: placesHit[0].geometry,
+        })
+        view.container.style.cursor = "pointer"
+        currentPID = placesHit[0].attributes["esri_place_id"]
+        return
+      }
+
+      view.container.style.cursor = "auto"
+      view.closePopup()
+      currentPID = null
+    }
+
+    // Close the details panel
+    const panelDidClose = () => {
+      currentMarker = null
+      view.graphics.removeAll()
+      currentPID = null
+      document.getElementById("panelDetails").style.display = "none"
+    }
+
+    document
+      .getElementById("panelDetails")
+      .addEventListener("calcitePanelClose", panelDidClose)
+
+    // listen for map view pointer moves
+    view.on("pointer-move", viewPointerdidMove)
+    // listen for map clicks
+    view.on("click", getPlaceDetails)
+
+    currentPID = "1289f442382024deaf304c7dd9598bac" // set initial place
+    getPlaceDetails()
+  </script>
+</head>
+
+<body>
+  <div id="viewContainer"></div>
+  <calcite-panel class="esri-widget esri-component" id="panelDetails" closed="" closable="">
+    <section aria-expanded="false" aria-labelledby="73ec5f5b-7569-42bc-f066-e24f403e6f3c-button" class="content" id="73ec5f5b-7569-42bc-f066-e24f403e6f3c-region">
+      <slot></slot>
+    </section>
+    <calcite-block id="idLabel" class="hide" heading="Place Id" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="pin-tear-f"></calcite-icon>
+    </calcite-block>
+    <calcite-block id="categoryLabel" class="hide" heading="Categories" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="select-category"></calcite-icon>
+    </calcite-block>
+    <calcite-block id="addressLabel" class="hide" heading="Address" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="map-pin"></calcite-icon>
+    </calcite-block>
+    <calcite-block id="phoneLabel" class="hide" heading="Phone" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="mobile"></calcite-icon>
+    </calcite-block>
+    <calcite-block id="emailLabel" class="hide" heading="Email" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="email-address"></calcite-icon>
+      <calcite-action slot="control" text="Information"></calcite-action>
+    </calcite-block>
+    <calcite-block id="websiteLabel" class="hide" heading="Website" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="information"></calcite-icon>
+      <calcite-action slot="control" text="Information"></calcite-action>
+    </calcite-block>
+    <calcite-block id="facebookLabel" class="hide" heading="Facebook" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="speech-bubble-social"></calcite-icon>
+      <calcite-action slot="control" text="Information"></calcite-action>
+    </calcite-block>
+    <calcite-block id="twitterLabel" class="hide" heading="Twitter" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="speech-bubbles"></calcite-icon>
+      <calcite-action slot="control" text="Information"></calcite-action>
+    </calcite-block>
+    <calcite-block id="instagramLabel" class="hide" heading="Instagram" scale="l" description="">
+      <calcite-icon scale="m" slot="icon" icon="camera"></calcite-icon>
+      <calcite-action slot="control" text="Information"></calcite-action>
+    </calcite-block>
+  </calcite-panel>
+</body>
+</html>
