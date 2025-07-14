@@ -24,24 +24,49 @@ require([
     "esri/rest/places",
     "esri/rest/support/FetchPlaceParameters",
     "esri/rest/support/PlacesQueryParameters",
+    "esri/widgets/Search",
+    "esri/widgets/Expand",
     "esri/geometry/Point",
     "esri/Graphic",
-    "esri/layers/GraphicsLayer"
-], function(esriConfig, Basemap, Map, MapView, BasemapStyle, Graphic, route, RouteParameters, FeatureSet, FeatureLayer, MapImageLayer, VectorTileLayer, esriRequest, places, FetchPlaceParameters, PlacesQueryParameters, Point, Graphic, GraphicsLayer) {
+    "esri/layers/GraphicsLayer",
+    "esri/geometry/geometryEngine",
+    "esri/geometry/projection",
+    "esri/geometry/SpatialReference",
+    "esri/geometry/support/webMercatorUtils"
+], function(esriConfig, Basemap, Map, MapView, BasemapStyle, Graphic, route, RouteParameters, FeatureSet, FeatureLayer, MapImageLayer, VectorTileLayer, esriRequest, places, FetchPlaceParameters, PlacesQueryParameters, Search, Expand, Point, Graphic, GraphicsLayer, geometryEngine, projection, SpatialReference, webMercatorUtils) {
   setEventHandlers();
   let languageCode = "en";
+  let initialViewPoint = [-117.1620642, 32.7060707]; // San Diego
   let worldView = "unitedStatesOfAmerica";
   let localizeCategories = true;
   let routingActive = false;
   let showElevation = false;
+  let elevationMarkerLayer = null;
+  let basemapPlacesLayer = null;
   let placesCategoriesList = null;
   let placesCategoriesToShow = null;
   let activePlaceCategory = "Restaurants";
   let processingPlaceSearch = false;
   let lastPlaceId = null;
+  let lastPlaceHitTime = 0;
+  let chartWidget = null;
+  let priorElevationMarker = null;
+  const elevationMarkerSymbol = {
+    type: "simple-marker",
+    size: "10",
+    color: "rgb(68, 169, 236)",
+  };
+  const routeLineSymbol = {
+    type: "simple-line",
+    color: "rgb(0, 87, 150)",
+    width: "5px"
+  };
 
+  showElevationChart(false);
   updateConfigurationFromURL();
   esriConfig.apiKey = my_secret_api_key;
+
+  // Use graphics layer to render places found with query
   const placesLayer = new GraphicsLayer({
     id: "placesLayer"
   });
@@ -53,38 +78,35 @@ require([
   const view = new MapView({
       container: "viewDiv",
       map: map,
-      center: [-116.5418227, 33.8258333],
+      center: initialViewPoint,
       zoom: 11
   });
 
+  // Add Search widget with autosuggest
+  view.ui.add(
+    new Expand({
+      view: view,
+      content: new Search({
+        view: view
+      }),
+      expanded: false,
+      mode: "floating",
+    }),
+    "top-left"
+  );
+
   view.when(function() {
+    basemapPlacesLayer = map.allLayers.getItemAt(0);
     getPlacesCategoriesList(languageCode);
     showTouristAttractions(map);
+    elevationMarkerLayer = new GraphicsLayer({ id: "marker-layer" });
+    view.map.add(elevationMarkerLayer);
   })
   .catch(function(err) {
     console.error("MapView cannot be loaded: ", err);
   });
 
-  view.on("click", function(event) {
-    const mapPoint = event.mapPoint;
-    if (routingActive) {
-      if (view.graphics.length === 0) {
-        addGraphic("origin", mapPoint);
-      } else if (view.graphics.length === 1) {
-        addGraphic("destination", mapPoint);
-        getRoute();
-      } else {
-        view.graphics.removeAll();
-        addGraphic("origin", mapPoint);
-      }
-    } else if (showElevation) {
-      view.graphics.removeAll();
-      getElevationDataAtPoint(view, mapPoint);
-    } else {
-      getPlacesNearby(activePlaceCategory, mapPoint);
-    }
-  });
-
+  view.on("click", viewClickEventHandler);
   view.on("pointer-move", pointerMoveEventHandler);
 
   /**
@@ -100,7 +122,7 @@ require([
    * ---------------------------- Basemap -----------------------------------------
    * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/mapping/how-to-build-a-mapping-app/
    */
-  const customBasemapItemId = "545aec7d28a34e08a0579a648199921b";
+  const customBasemapItemId = "8a065cb78a5b4ebc9f56e314071249af";
 
   /**
    * Listen for a change event on the basemap picker UI.
@@ -108,7 +130,13 @@ require([
    */
   function onChangeBasemap(event) {
     const comboBox = event.target;
-    map.basemap = basemapFromSelection(comboBox.value);
+    const basemapId = comboBox.value;
+    map.basemap = basemapFromSelection(basemapId);
+
+    map.allLayers.forEach(function(layer) {
+      console.log(layer.title, layer.type, layer.id);
+    });
+
   }
 
   /**
@@ -175,6 +203,7 @@ require([
   /**
    * ---------------------------- Routing -----------------------------------------
    * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/routing-and-directions/how-to-build-a-routing-app/
+   * Traffic layer from Living Atlas https://livingatlas.arcgis.com/en/browse/?q=traffic#d=2&q=traffic
    */
   const routeUrl = "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World";
   const trafficLayerURL = "https://traffic.arcgis.com/arcgis/rest/services/World/Traffic/MapServer";
@@ -183,27 +212,30 @@ require([
    * Solve the route between the origin and destination points.
    */
   function getRoute() {
+    const routeStops = new FeatureSet({
+      features: view.graphics.toArray()
+    });
     const routeParams = new RouteParameters({
-      stops: new FeatureSet({
-        features: view.graphics.toArray()
-      }),
+      stops: routeStops,
       returnDirections: true,
       directionsOutputType: "complete"
     });
 
     route.solve(routeUrl, routeParams)
     .then(function(routeSolveResult) {
-      routeSolveResult.routeResults.forEach(function(result) {
-        result.route.symbol = {
-          type: "simple-line",
-          color: [5, 150, 255],
-          width: 3
-        };
-        view.graphics.add(result.route);
-      });
 
-      // Display directions
       if (routeSolveResult.routeResults.length > 0) {
+
+        // show route geometry on map in a graphics layer
+        const routeLayer = routeSolveResult.routeResults[0].route;
+        const { attributes, geometry } = routeLayer;
+        view.graphics.add(new Graphic({
+          attributes,
+          geometry,
+          symbol: routeLineSymbol
+        }));
+
+        // Display turn-by-turn directions text
         const routeResult = routeSolveResult.routeResults[0].directions;
         const directions = document.createElement("ol");
         directions.classList = "esri-widget esri-widget--panel esri-directions__scroller";
@@ -211,14 +243,13 @@ require([
         directions.style.padding = "12px 12px 12px 30px";
         const features = routeResult.features;
 
-        // Show each direction
         features.forEach(function(result,i){
           const direction = document.createElement("li");
           direction.innerHTML = result.attributes.text + " (" + result.attributes.length.toFixed(2) + " miles)";
           directions.appendChild(direction);
         });
 
-        // show summary
+        // show summary of drive time and distance
         let summary = document.createElement("p");
         summary.innerText =
           "Distance: " + routeResult.totalLength.toFixed(2) +
@@ -226,6 +257,11 @@ require([
         directions.appendChild(summary);
         view.ui.empty("top-right");
         view.ui.add(directions, "top-right");
+
+        // if elevation switch is on then show the elevation chart.
+        if (showElevation) {
+          drawElevationChart(geometry);
+        }
       }
     })
     .catch(function(error){
@@ -267,6 +303,7 @@ require([
     if ( ! routingActive) {
       view.ui.empty("top-right");
       view.graphics.removeAll();
+      showElevationChart(false);
     }
   }
 
@@ -284,10 +321,13 @@ require([
   }
 
   /**
-   * ----------------------- Data Hosting, Feature Service -----------------------------------------
+   * ----------------------- Data Hosting, Layers, Feature Services -----------------------------------------
    * Reference: https://developers.arcgis.com/documentation/portal-and-data-services/data-services/how-to-work-with-data-services/
+   * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/mapping/data-layers/
    */
-  const touristFeatureServiceURL = "https://services6.arcgis.com/ruf7rSM6pRXYMxKO/arcgis/rest/services/Palm_Springs_Tourist_Locations/FeatureServer";
+  const touristFeatureServiceURL = "https://services8.arcgis.com/PxLlS7hS3gd7MX6c/arcgis/rest/services/San_Diego_Tourist_Attractions/FeatureServer";
+  const bikeRoutesURL = "https://services8.arcgis.com/PxLlS7hS3gd7MX6c/arcgis/rest/services/San_Diego_Bike_Routes/FeatureServer";
+  const featureServiceURL = "https://services8.arcgis.com/PxLlS7hS3gd7MX6c/arcgis/rest/services/San_Diego_Bay_Run_20240715/FeatureServer";
 
   /**
    * Create a feature layer from our curated places data, add the unique value symbol
@@ -371,14 +411,37 @@ require([
   }
 
   /**
+   * Handle the UI switch to show or hide the bike route layer.
+   */
+  function onChangeBikeRoutes(event) {
+    const element = event.target;
+    const isChecked = element.checked;
+    showBikeRoutes(map, isChecked);
+  }
+
+  function showBikeRoutes(map, visible) {
+    let bikeRoutesFeatureLayer = map.findLayerById("bikeroutes");
+    if (bikeRoutesFeatureLayer) {
+      bikeRoutesFeatureLayer.visible = visible;
+    } else if (visible) {
+      bikeRoutesFeatureLayer = new FeatureLayer({
+        url: bikeRoutesURL,
+        id: "bikeroutes",
+        opacity: 0.72
+      });
+      map.add(bikeRoutesFeatureLayer);
+    }
+  }
+
+  /**
    * ---------------------------- Elevation -----------------------------------------
    * Reference: https://developers.arcgis.com/documentation/mapping-and-location-services/elevation/how-to-build-an-app-to-find-elevation/
    */
-  const elevationURL = "https://elevation-api.arcgis.com/arcgis/rest/services/elevation-service/v1/elevation/at-point";
+  const elevationURL = "https://elevation-api.arcgis.com/arcgis/rest/services/elevation-service/v1/elevation/";
   const elevationMeasure = "meanSeaLevel";
 
   /**
-   * Query elevation data for the given point and then render the UI
+   * Query elevation data for the given single point and then render the UI
    * popup element to display the data.
    * @param {MapView} mapView Map view to add UI elements to.
    * @param {Point} mapPoint x, y where to query elevation data.
@@ -386,7 +449,7 @@ require([
   function getElevationDataAtPoint(mapView, mapPoint) {
     const longitude = mapPoint.longitude;
     const latitude = mapPoint.latitude;
-    esriRequest(elevationURL, {
+    esriRequest(`${elevationURL}at-point`, {
       query: {
         lon: longitude,
         lat: latitude,
@@ -423,6 +486,59 @@ require([
     });
   }
 
+  async function getElevationDataForPoints(coordinates) {
+    const bodyJson = JSON.stringify({
+      coordinates: coordinates,
+      relativeTo: elevationMeasure,
+    });
+    const service_response = await fetch(
+      `${elevationURL}at-many-points`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${esriConfig.apiKey}`,
+        },
+        body: bodyJson,
+      }
+    );
+    let response = await service_response.json();
+    return response["result"]["points"];
+  }
+
+  /**
+   * Query for elevation data for element in the geometry. Works best if they are points.
+   * @param {Array} geometry Array of points.
+   */
+  async function drawElevationChart(geometry) {
+    if (geometry == null) {
+      return;
+    }
+    showElevationChart(true);
+    showChartLoader(true);
+    const densifiedGeometry = await densifyGeometry(geometry, 500);
+    const wgs84Geometry = await projectGeometry(densifiedGeometry);
+    const coordinatesArrays = await getCoordinatesArrays(wgs84Geometry);
+
+    let meanSeaLevelRequests = [];
+
+    coordinatesArrays.forEach(function(geographicPoints) {
+      meanSeaLevelRequests.push(getElevationDataForPoints(geographicPoints));
+    });
+
+    const [meanSeaLevelResults] = await Promise.all([
+      Promise.all(meanSeaLevelRequests),
+    ]);
+
+    let [meanSeaLevelData, totalDistance] = processElevationPoints(
+      meanSeaLevelResults,
+      coordinatesArrays
+    );
+
+    updateElevationChart(meanSeaLevelData, totalDistance / 1000.0 + 0.1);
+    showChartLoader(false);
+  }
+
   /**
    * Handle the UI switch to enable or disable elevation query.
    */
@@ -430,9 +546,149 @@ require([
     const element = event.target;
     showElevation = element.checked;
     if ( ! showElevation) {
+      showElevationChart(false);
       view.graphics.removeAll();
       view.popup.close();
     }
+  }
+
+  /**
+   * Show or hide the elevation chart div.
+   * @param {boolean} visible 
+   */
+  function showElevationChart (visible) {
+    const element = document.getElementById("chartDiv");
+    element.style.display = visible ? "flex" : "none";
+  }
+
+  /**
+   * Show or hide the elevation chart loading spinner.
+   * @param {boolean} visible 
+   */
+  function showChartLoader (visible) {
+    const element = document.getElementById("chartLoader")
+    element.style.display = visible ? "block" : "none";
+  }
+
+  /**
+   * Build the chart model from the elevation data.
+   * @param {Array} meanSeaLevelData Array of the elevation data points to chart.
+   * @param {Number} maxKm Max elevation value.
+   */
+  async function updateElevationChart(meanSeaLevelData, maxKm) {
+    const elevationChart = document.getElementById("elevationLines");
+
+    if (chartWidget != null) {
+      chartWidget.destroy();
+    }
+    chartWidget = new Chart(elevationChart, {
+      type: "line",
+      data: {
+        datasets: [
+          {
+            label: "Mean Sea Level",
+            data: meanSeaLevelData,
+            parsing: {
+              yAxisKey: "sea",
+              xAxisKey: "distance",
+            },
+            tension: 0.1,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        tooltips: {
+          enabled: true,
+        },
+        scales: {
+          x: {
+            type: "linear",
+            min: 0,
+            max: maxKm,
+            title: {
+              display: true,
+              text: "Distance (km)",
+            },
+          },
+          y: {
+            display: true,
+            title: {
+              display: true,
+              text: "Elevation (m)",
+            },
+          },
+        },
+        onHover: handleChartHover,
+      },
+    });
+    chartWidget.update();
+  }
+
+  function handleChartHover (event, elements, chart) {
+    if (elements.length === 0) {
+      clearElevationMarker();
+      return;
+    }
+    const datasetIndex = elements[0].datasetIndex;
+    const index = elements[0].index;
+    const { x, y } = chart.data.datasets[datasetIndex].data[index];
+    showElevationMarker(x, y);
+  }
+
+  function clearElevationMarker() {
+    if (priorElevationMarker) {
+      elevationMarkerLayer.remove(priorElevationMarker);
+      priorElevationMarker = null;
+    }
+  }
+
+  const showElevationMarker = (longitude, latitude) => {
+    clearElevationMarker();
+    const elevationMarker = new Graphic({
+      geometry: {
+        type: "point",
+        longitude: longitude,
+        latitude: latitude,
+      },
+      symbol: elevationMarkerSymbol
+    });
+    elevationMarkerLayer.add(elevationMarker);
+    priorElevationMarker = elevationMarker;
+  }
+
+  function processElevationPoints(
+    meanSeaLevelResults,
+    coordinatesArrays
+  ) {
+    let meanSeaLevelData = []
+    let totalDistance = 0
+
+    for (let i = 0; i < meanSeaLevelResults.length; i++) {
+      const meanSeaLevelPoints = meanSeaLevelResults[i]
+      const coordinatesBatch = coordinatesArrays[i]
+
+      meanSeaLevelPoints.forEach((point, index) => {
+        if (index > 0) {
+          const distance = calculateDistanceHaversine(
+            meanSeaLevelPoints[index - 1],
+            point,
+            "meters"
+          )
+          totalDistance += distance
+
+          meanSeaLevelData.push({
+            sea: point.z,
+            distance: totalDistance / 1000.0,
+            polylineIndex: index,
+            x: coordinatesBatch[index][0],
+            y: coordinatesBatch[index][1],
+          });
+        }
+      });
+    }
+    return [meanSeaLevelData, totalDistance]
   }
 
   /**
@@ -668,32 +924,102 @@ require([
   }
 
   /**
+   * Deterine what to do when the user clicks on the map, as depending on
+   * what switches are active different things can happen:
+   * - query for a place
+   * - query elevation
+   * - start or complete a route
+   * @param {Event} clickEvent Click event details
+   */
+  function viewClickEventHandler(clickEvent) {
+    const mapPoint = clickEvent.mapPoint;
+    if (routingActive) {
+      if (view.graphics.length === 0) {
+        addGraphic("origin", mapPoint);
+      } else if (view.graphics.length === 1) {
+        addGraphic("destination", mapPoint);
+        getRoute();
+      } else {
+        view.graphics.removeAll();
+        addGraphic("origin", mapPoint);
+      }
+    } else if (showElevation) {
+      view.graphics.removeAll();
+      getElevationDataAtPoint(view, mapPoint);
+    } else {
+      getPlacesNearby(activePlaceCategory, mapPoint);
+    }
+  }
+
+  /**
    * Monitor the mouse movement over the map view so we can determine
    * when a place graphic is rolled-over and then show the attributes
    * about that place.
    * @param {Event} pointerEvent Event attributes.
    */
   async function pointerMoveEventHandler(pointerEvent) {
-    const response = await view.hitTest(pointerEvent, {include: placesLayer});
-    if (response.results.length > 0) {
-      // hit something on the places layer, show the details
-      const graphic = response.results[0].graphic;
-      const placeAttributes = graphic.attributes;
-      if (lastPlaceId != placeAttributes.placeId) {
-        lastPlaceId = placeAttributes.placeId;
-        getPlaceDetails(placeAttributes);
+    const timeNow = Date.now();
+    if (timeNow - lastPlaceHitTime > 300) {
+      lastPlaceHitTime = timeNow;
+      let includeLayers = [placesLayer];
+      if (basemapPlacesLayer) {
+        includeLayers.push(basemapPlacesLayer);
       }
-    } else {
-      // no results, clear any previous place detail
-      lastPlaceId = null;
-      if ( ! routingActive) {
-        view.ui.empty("top-right");
+      const hitResponse = await view.hitTest(pointerEvent, {include: includeLayers});
+      if (hitResponse.results.length > 0) {
+        const graphic = hitResponse.results[0].graphic;
+        if (graphic) {
+          const layerId = hitResponse.results[0].layer.id;
+          if (layerId == "placesLayer") {
+            // hit something on the curated places layer, show the place details
+            const placeAttributes = graphic.attributes;
+            if (lastPlaceId != placeAttributes.placeId) {
+              lastPlaceId = placeAttributes.placeId;
+              getPlaceDetails(placeAttributes);
+            }
+          } else {
+            // hit something on the basemap places layer, show the place details
+            const hitPlace = await Promise.all(
+              hitResponse.results
+              .filter(function(feature) {
+                if (feature.graphic.attributes["esri_place_id"]) {
+                  return feature.graphic;
+                }
+              })
+              .map(async function(feature) {
+                if (feature) {
+                  // transform the raw place data into something we can use
+                  feature.graphic.attributes = {
+                    placeId: feature.graphic.attributes["esri_place_id"],
+                    name: feature.graphic.attributes["_name"],
+                    category: feature.graphic.attributes["category_labels"]
+                      .split(">")
+                      .at(-1)
+                      .trim(),
+                  }
+                  return feature.graphic
+                }
+              })
+            );
+            if (hitPlace.length > 0) {
+              lastPlaceId = hitPlace[0].attributes.placeId;
+              getPlaceDetails(hitPlace[0].attributes);
+            }
+          }
+        }
+      } else {
+        // no results, clear any previous place detail
+        lastPlaceId = null;
+        if ( ! routingActive) {
+          view.ui.empty("top-right");
+        }
       }
     }
   }
 
   /**
-   * Get details about a place given its place ID returned from a place query.
+   * Get details about a place given its place ID returned from a place query, and
+   * then display the place details in a UI panel.
    * @param {Place} placeAttributes Place attributes returned from a place query.
    */
   function getPlaceDetails(placeAttributes) {
@@ -736,6 +1062,11 @@ require([
   }
 
   /**
+   * ---------------------------- Helpers -----------------------------------------
+   * Supporting functions and UI helpers.
+   */
+
+  /**
    * Wire up the UI elements to event handlers.
    */
   function setEventHandlers() {
@@ -747,6 +1078,10 @@ require([
     if (element) {
       element.addEventListener("calciteSwitchChange", onChangeTraffic);
     }
+    element = document.getElementById("bike-switch");
+    if (element) {
+      element.addEventListener("calciteSwitchChange", onChangeBikeRoutes);
+    }
     element = document.getElementById("route-switch");
     if (element) {
       element.addEventListener("calciteSwitchChange", onChangeRoute);
@@ -755,5 +1090,65 @@ require([
     if (element) {
       element.addEventListener("calciteSwitchChange", onChangeElevation);
     }
+  }
+
+  async function densifyGeometry(geometry, interval) {
+    const projectedGeometry = await projection.project(
+      geometry,
+      SpatialReference.WebMercator
+    );
+    interval ||= 500;
+    const densified = geometryEngine.densify(
+      projectedGeometry,
+      interval,
+      "meters"
+    );
+    return densified;
+  }
+
+  function calculateDistanceHaversine(point1, point2) {
+    const R = 6371e3 // Earth's radius in meters
+    const lat1Radians = point1.y * (Math.PI / 180)
+    const lat2Radians = point2.y * (Math.PI / 180)
+    const deltaLatRadians = (point2.y - point1.y) * (Math.PI / 180)
+    const deltaLonRadians = (point2.x - point1.x) * (Math.PI / 180)
+
+    const a =
+      Math.sin(deltaLatRadians / 2) * Math.sin(deltaLatRadians / 2) +
+      Math.cos(lat1Radians) *
+        Math.cos(lat2Radians) *
+        Math.sin(deltaLonRadians / 2) *
+        Math.sin(deltaLonRadians / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+    return R * c
+  }
+
+  async function projectGeometry(geometry) {
+    const projected = await projection.project(
+      geometry,
+      SpatialReference.WGS84
+    )
+    return projected
+  }
+
+  async function getCoordinatesArrays(polyline) {
+    const polylineJson = polyline.toJSON();
+    const geometryPath = polylineJson.paths[0];
+
+    let coordinatesArrays = [];
+    let geographicPoints = [];
+    geometryPath.forEach(function(coordinates) {
+      if (geographicPoints.length < 100) {
+        geographicPoints.push([coordinates[0], coordinates[1]])
+      } else {
+        coordinatesArrays.push(geographicPoints)
+        geographicPoints = [[coordinates[0], coordinates[1]]]
+      }
+    });
+    if (geographicPoints.length > 0) {
+      coordinatesArrays.push(geographicPoints);
+    }
+    return coordinatesArrays;
   }
 });

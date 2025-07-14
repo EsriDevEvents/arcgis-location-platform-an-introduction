@@ -22,13 +22,13 @@
     <script src="./secret.js"></script>
     <script>
         const staticMapParameters = {
-            lon: -116.55035,
-            lat: 33.8251852,
-            zoomLevel: 14,
+            lon: -117.15698,
+            lat: 32.70885,
+            zoomLevel: 16,
             markerSymbol: "pin",
             mapImageFormat: "png",
-            mapImageWidth: 900,
-            mapImageHeight: 500,
+            mapImageWidth: 600,
+            mapImageHeight: 450,
             token: my_secret_api_key
         };
         let url = "https://static-maps-api.arcgis.com/arcgis/rest/services/static-maps-service/beta/generate-map/arcgis/navigation/centered-at?" + new URLSearchParams(staticMapParameters).toString();
